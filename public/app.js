@@ -3,7 +3,8 @@
 
   const DEFAULT_CENTER = [55.751244, 37.618423];
   const DEFAULT_ZOOM = 7;
-  const REFRESH_MS = 5000;
+  const REFRESH_MS = 15000;
+  const MAX_BACKOFF_MS = 120000;
   const MAX_TRACK_POINTS = 500;
   const EMERGENCY_SQUAWKS = new Set(['7500', '7600', '7700']);
 
@@ -21,6 +22,8 @@
   let loading = false;
   let refreshTimer = null;
   let toastTimer = null;
+  let retryDelayMs = REFRESH_MS;
+  let nextAllowedFetchAt = 0;
 
   const $ = (id) => document.getElementById(id);
   const ui = {
@@ -214,22 +217,58 @@
     return Math.max(10, Math.min(250, Math.ceil((meters / 1852) * 1.08)));
   }
 
-  async function fetchAircraft({force = false} = {}) {
-    if (loading && !force) return;
+  async function fetchAircraft({ force = false } = {}) {
+    if (loading) return false;
+
+    const now = Date.now();
+    if (!force && now < nextAllowedFetchAt) return false;
+
     loading = true;
     try {
       const center = map.getCenter();
       const radius = radiusForMap();
       const url = `/api/aircraft?lat=${center.lat.toFixed(5)}&lon=${center.lng.toFixed(5)}&radius=${radius}`;
       const response = await fetch(url, { cache: 'no-store' });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      if (!response.ok) {
+        const err = new Error(`HTTP ${response.status}`);
+        err.status = response.status;
+        err.retryAfter = Number(response.headers.get('retry-after') || 0);
+        throw err;
+      }
+
       const data = await response.json();
       const items = Array.isArray(data.ac) ? data.ac : (Array.isArray(data.aircraft) ? data.aircraft : []);
       updateMarkers(items);
-      ui.lastUpdate.textContent = `обновлено ${new Date().toLocaleTimeString('ru-RU')} · радиус ${radius} NM`;
+
+      const source = response.headers.get('x-airradar-source') || 'ADS-B';
+      const cacheState = response.headers.get('x-airradar-cache');
+      const cacheLabel = cacheState === 'HIT' ? ' · cache' : '';
+      ui.lastUpdate.textContent =
+        `обновлено ${new Date().toLocaleTimeString('ru-RU')} · ${source}${cacheLabel} · радиус ${radius} NM`;
+
+      retryDelayMs = REFRESH_MS;
+      nextAllowedFetchAt = Date.now() + REFRESH_MS;
+      return true;
     } catch (err) {
-      ui.lastUpdate.textContent = 'ошибка получения данных';
-      showToast(`Не удалось получить ADS-B данные: ${err.message}`, 4200);
+      if (err.status === 429) {
+        const serverWait = Number.isFinite(err.retryAfter) && err.retryAfter > 0
+          ? err.retryAfter * 1000
+          : retryDelayMs * 2;
+
+        retryDelayMs = Math.min(MAX_BACKOFF_MS, Math.max(30000, serverWait));
+        nextAllowedFetchAt = Date.now() + retryDelayMs;
+
+        const seconds = Math.ceil(retryDelayMs / 1000);
+        ui.lastUpdate.textContent = `источник временно ограничил запросы · повтор через ${seconds} сек`;
+        showToast(`ADS-B источник ограничил частоту запросов. Повторю автоматически через ${seconds} сек.`, 5200);
+      } else {
+        retryDelayMs = Math.min(MAX_BACKOFF_MS, Math.max(30000, retryDelayMs * 2));
+        nextAllowedFetchAt = Date.now() + retryDelayMs;
+        ui.lastUpdate.textContent = 'временная ошибка источника · данные на карте сохранены';
+        showToast(`Не удалось обновить ADS-B данные: ${err.message}`, 4200);
+      }
+      return false;
     } finally {
       loading = false;
     }
@@ -253,7 +292,6 @@
       if (hex) aircraftByHex.set(hex, ac);
       if (num(ac.lat) !== null && num(ac.lon) !== null) {
         map.setView([ac.lat, ac.lon], Math.max(map.getZoom(), 8));
-        await fetchAircraft({ force: true });
       }
       if (hex) await selectAircraft(hex, true);
       if (items.length > 1) showToast(`Найдено ${items.length} совпадений; показан первый активный борт.`);
@@ -270,7 +308,13 @@
     searchAircraft(ui.searchInput.value);
   });
 
-  ui.refreshBtn.addEventListener('click', () => fetchAircraft({ force: true }));
+  ui.refreshBtn.addEventListener('click', () => {
+    if (Date.now() < nextAllowedFetchAt) {
+      const seconds = Math.ceil((nextAllowedFetchAt - Date.now()) / 1000);
+      return showToast(`Следующее обновление доступно через ${seconds} сек.`);
+    }
+    fetchAircraft({ force: true });
+  });
   ui.closeDetails.addEventListener('click', () => {
     selectedHex = null;
     ui.details.classList.add('hidden');
@@ -300,26 +344,28 @@
   let moveDebounce = null;
   map.on('moveend zoomend', () => {
     clearTimeout(moveDebounce);
-    moveDebounce = setTimeout(() => fetchAircraft({ force: true }), 280);
+    moveDebounce = setTimeout(() => fetchAircraft(), 900);
   });
 
-  function startRefreshLoop() {
-    clearInterval(refreshTimer);
-    refreshTimer = setInterval(fetchAircraft, REFRESH_MS);
+  function scheduleNextRefresh(delay = REFRESH_MS) {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(async () => {
+      await fetchAircraft();
+      const remaining = Math.max(1000, nextAllowedFetchAt - Date.now());
+      scheduleNextRefresh(Math.max(REFRESH_MS, remaining));
+    }, delay);
   }
 
-  fetchAircraft({ force: true });
-  startRefreshLoop();
+  fetchAircraft({ force: true }).finally(() => scheduleNextRefresh());
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
-      clearInterval(refreshTimer);
+      clearTimeout(refreshTimer);
       refreshTimer = null;
     } else {
-      fetchAircraft({ force: true });
-      startRefreshLoop();
+      fetchAircraft().finally(() => scheduleNextRefresh());
     }
   });
 
-  window.addEventListener('beforeunload', () => clearInterval(refreshTimer));
+  window.addEventListener('beforeunload', () => clearTimeout(refreshTimer));
 })();
