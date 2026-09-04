@@ -1,0 +1,7 @@
+AirRadar MVP source code in this archive is provided as a prototype for the user.
+
+Aircraft data: ADSB.lol contributors / ADSB.lol API, published under ODbL 1.0.
+Map data: OpenStreetMap contributors.
+Leaflet: BSD-2-Clause license.
+
+Before public/commercial production use, review the current terms and attribution requirements of all data and map providers.
