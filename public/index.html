@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AirRadar — live ADS-B</title>
+  <meta name="description" content="Live ADS-B радар на открытых данных ADSB.lol" />
+  <link rel="preconnect" href="https://unpkg.com" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">AR</div>
+        <div>
+          <div class="brand-title">AirRadar</div>
+          <div class="brand-subtitle">LIVE ADS-B</div>
+        </div>
+      </div>
+
+      <form id="searchForm" class="search" autocomplete="off">
+        <input id="searchInput" placeholder="Рейс, регистрация или ICAO HEX" aria-label="Поиск самолёта" />
+        <button type="submit">Найти</button>
+      </form>
+
+      <div class="top-actions">
+        <button id="locateBtn" class="ghost-btn" title="Показать моё местоположение">◎ Геопозиция</button>
+        <button id="refreshBtn" class="ghost-btn" title="Обновить данные">↻ Обновить</button>
+      </div>
+    </header>
+
+    <main>
+      <div id="map"></div>
+
+      <section class="floating-stats" aria-live="polite">
+        <div><span class="pulse-dot"></span><strong id="aircraftCount">0</strong> бортов</div>
+        <div id="lastUpdate">ожидание данных</div>
+      </section>
+
+      <aside id="filters" class="filters-card">
+        <div class="card-heading">Фильтры</div>
+        <label class="switch-row">
+          <span>Только в воздухе</span>
+          <input id="airborneOnly" type="checkbox" />
+        </label>
+        <label class="switch-row">
+          <span>Только военные*</span>
+          <input id="militaryOnly" type="checkbox" />
+        </label>
+        <label class="switch-row">
+          <span>Только emergency</span>
+          <input id="emergencyOnly" type="checkbox" />
+        </label>
+        <label class="range-row">
+          <span>Мин. высота: <b id="minAltLabel">0</b> ft</span>
+          <input id="minAltitude" type="range" min="0" max="45000" step="1000" value="0" />
+        </label>
+        <div class="fineprint">* По флагу базы, когда он присутствует в источнике.</div>
+      </aside>
+
+      <aside id="details" class="details-panel hidden">
+        <button id="closeDetails" class="close-btn" aria-label="Закрыть">×</button>
+        <div class="eyebrow" id="detailHex">—</div>
+        <h1 id="detailFlight">—</h1>
+        <div class="detail-model" id="detailModel">—</div>
+
+        <div class="detail-grid">
+          <div><span>Регистрация</span><strong id="detailReg">—</strong></div>
+          <div><span>Оператор</span><strong id="detailOperator">—</strong></div>
+          <div><span>Высота</span><strong id="detailAlt">—</strong></div>
+          <div><span>Скорость</span><strong id="detailSpeed">—</strong></div>
+          <div><span>Курс</span><strong id="detailTrack">—</strong></div>
+          <div><span>Вертикальная</span><strong id="detailVRate">—</strong></div>
+          <div><span>Squawk</span><strong id="detailSquawk">—</strong></div>
+          <div><span>Источник</span><strong id="detailSource">—</strong></div>
+        </div>
+
+        <div id="emergencyBadge" class="emergency-badge hidden">EMERGENCY</div>
+        <div class="track-note">Трек на карте накапливается, пока эта вкладка открыта.</div>
+      </aside>
+
+      <div id="toast" class="toast hidden" role="status"></div>
+    </main>
+
+    <footer>
+      Open-data prototype · ADS-B data © ADSB.lol contributors, ODbL · Map © OpenStreetMap contributors
+    </footer>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="/app.js"></script>
+</body>
+</html>
